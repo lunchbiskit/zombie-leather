@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "rrr",
+    "rcr",
+    "rrr"
+  ],
+  "key": {
+    "r": "minecraft:rotten_flesh",
+    "c": [
+      "minecraft:charcoal",
+      "minecraft:coal"
+    ]
+  },
+  "result": {
+    "id": "minecraft:leather",
+    "count": 8
+  }
+}

@@ -1,0 +1,130 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (SemVer, e.g., 1.2.3)'
+        required: true
+        type: string
+
+env:
+  PACK_NAME: zombie-leather
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate version input
+        run: |
+          if [ -z "${{ inputs.version }}" ]; then
+            echo "::error::Version input cannot be empty"
+            exit 1
+          fi
+          # Basic SemVer validation
+          if ! echo "${{ inputs.version }}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?(\+[a-zA-Z0-9.-]+)?$'; then
+            echo "::error::Version must follow SemVer format (e.g., 1.2.3)"
+            exit 1
+          fi
+
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Check if tag already exists
+        run: |
+          TAG_NAME="v${{ inputs.version }}"
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG_NAME already exists. Please use a different version."
+            exit 1
+          fi
+          echo "✓ Tag is available"
+
+      - name: Validate datapack structure
+        run: |
+          if [ ! -f "pack.mcmeta" ]; then
+            echo "::error::pack.mcmeta not found at repository root"
+            exit 1
+          fi
+          if [ ! -d "data" ]; then
+            echo "::error::data/ directory not found at repository root"
+            exit 1
+          fi
+          if [ -z "$(ls -A data)" ]; then
+            echo "::error::data/ directory is empty"
+            exit 1
+          fi
+          echo "✓ Datapack structure validated"
+
+      - name: Print release information
+        run: |
+          TAG_NAME="v${{ inputs.version }}"
+          ZIP_NAME="${{ env.PACK_NAME }}-${{ inputs.version }}.zip"
+          COMMIT_SHA="${{ github.sha }}"
+
+          echo "📦 Release Information"
+          echo "====================="
+          echo "Tag:        $TAG_NAME"
+          echo "Zip:        $ZIP_NAME"
+          echo "Commit:     $COMMIT_SHA"
+          echo "Branch:     main"
+
+      - name: Create datapack zip
+        run: |
+          ZIP_NAME="${{ env.PACK_NAME }}-${{ inputs.version }}.zip"
+
+          # Create zip with pack.mcmeta and data/ at root level
+          zip -r "$ZIP_NAME" pack.mcmeta data/
+
+          # Verify zip contents
+          echo "📋 Zip contents:"
+          unzip -l "$ZIP_NAME"
+
+          echo "ZIP_PATH=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Create git tag
+        run: |
+          TAG_NAME="v${{ inputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG_NAME" -m "Release $TAG_NAME"
+          git push origin "$TAG_NAME"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG_NAME="v${{ inputs.version }}"
+          COMMIT_SHA="${{ github.sha }}"
+
+          # Create release notes
+          cat > release_notes.md << EOF
+          ## Zombie Leather Datapack - $TAG_NAME
+
+          This release contains the Minecraft datapack distribution for version ${{ inputs.version }}.
+
+          ### Installation
+          1. Download the attached zip file
+          2. Place it in your world's \`datapacks\` folder
+          3. Reload datapacks in-game with \`/reload\`
+
+          **Built from commit:** \`$COMMIT_SHA\`
+          EOF
+
+          # Create release with asset
+          gh release create "$TAG_NAME" \
+            "${{ env.ZIP_PATH }}" \
+            --title "$TAG_NAME" \
+            --notes-file release_notes.md \
+            --target main
+
+      - name: Release summary
+        run: |
+          echo "✅ Release v${{ inputs.version }} created successfully!"
+          echo "📦 Asset: ${{ env.ZIP_PATH }}"
+          echo "🔗 View at: ${{ github.server_url }}/${{ github.repository }}/releases/tag/v${{ inputs.version }}"
